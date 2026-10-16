@@ -19,6 +19,16 @@ major or minor version increases: `4.93.0 → 4.94.0` qualifies;
 `4.93.0 → 4.93.1` does not. A qualifying upgrade installs Homebrew's latest
 version, including its patches.
 
+## Why
+
+Some desktop apps are 500–700 MB and publish updates frequently, sometimes
+daily. If every release is treated as an update, `brew upgrade` can repeatedly
+download a large app just to apply a patch. Homebrew's built-in `brew pin` avoids
+those downloads by skipping the package entirely, but then it also skips minor
+and major updates. `brew upm` lets you defer patch releases for selected apps
+while continuing to update everything else. Those apps still receive all
+patches—including security fixes—when a major or minor update becomes available.
+
 ## Install
 
 Requires macOS and Homebrew. `upm` is a native Ruby Homebrew external command;
