@@ -28,6 +28,8 @@ class UpmTest < Minitest::Test
       end
       if args == ["outdated", "--json=v2"]
         puts File.read(ENV.fetch("UPM_TEST_FIXTURE"))
+      elsif args == ["update"]
+        puts "Refreshing Homebrew metadata..."
       elsif args[0] == "list" && args[1] == "--formula"
         puts "wget\\nnormal\\n"
       elsif args[0] == "list" && args[1] == "--cask"
@@ -48,6 +50,9 @@ class UpmTest < Minitest::Test
       "UPM_TEST_FIXTURE" => @fixture,
       "UPM_TEST_FAILURE" => @failure,
       "UPM_TEST_PINNED"  => File.join(@directory, "pinned.txt"),
+      "UPM_TEST_BREW"    => @brew,
+      "UPM_TEST_PREFIX"  => @prefix,
+      "UPM_TEST_LIB"     => File.expand_path("../lib/upm.rb", __dir__),
     )
     @output = StringIO.new
     @error = StringIO.new
@@ -94,6 +99,19 @@ class UpmTest < Minitest::Test
     assert_equal 0, status, @error.string
     assert_equal [["outdated", "--json=v2"]], logged
     assert_match "Would upgrade formula:normal", @output.string
+  end
+
+  def test_normal_brew_output_streams_to_the_terminal
+    File.write(@fixture, JSON.generate("formulae" => [], "casks" => []))
+    runner = File.join(@directory, "run-upm.rb")
+    File.write(runner, <<~RUBY)
+      require ENV.fetch("UPM_TEST_LIB")
+      cli = Upm::CLI.new(brew: ENV.fetch("UPM_TEST_BREW"), prefix: ENV.fetch("UPM_TEST_PREFIX"))
+      exit cli.call([])
+    RUBY
+    stdout, stderr, status = Open3.capture3(@env, RbConfig.ruby, runner)
+    assert status.success?, stderr
+    assert_match "Refreshing Homebrew metadata...", stdout
   end
 
   def test_patch_revision_build_and_unknown_versions_are_skipped

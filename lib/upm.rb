@@ -290,13 +290,24 @@ module Upm
 
     def brew(arguments, capture: false)
       environment = @environ.to_h.merge("HOMEBREW_NO_AUTO_UPDATE" => "1")
-      stdout, stderr, status = Open3.capture3(environment, @brew, *arguments)
-      unless status.success?
-        raise Error,
-              stderr.strip.empty? ? "brew #{arguments.join(" ")} failed (exit #{status.exitstatus})." : stderr.strip
+      if capture || !@output.equal?($stdout) || !@error.equal?($stderr)
+        stdout, stderr, status = Open3.capture3(environment, @brew, *arguments)
+        unless status.success?
+          raise Error,
+                stderr.strip.empty? ? "brew #{arguments.join(" ")} failed (exit #{status.exitstatus})." : stderr.strip
+        end
+
+        return capture ? stdout : ""
       end
 
-      capture ? stdout : ""
+      success = system(environment, @brew, *arguments)
+      unless success
+        status = $?
+        raise Error,
+              "brew #{arguments.join(" ")} failed (exit #{status&.exitstatus || 1})."
+      end
+
+      ""
     rescue Errno::ENOENT => e
       raise Error, "Homebrew executable was not found: #{e.message}"
     end
