@@ -75,7 +75,10 @@ Fresh installations start with an empty list. `packages.example.txt` shows the
 format, with optional comments and one `formula:name` or `cask:name` per line.
 
 `add` accepts installed Homebrew names and stores their package type. If a name
-matches both types, use `brew upm add cask:name` or `formula:name`.
+matches both types, use `brew upm add cask:name` or `formula:name`. If the
+package exists in Homebrew but is not installed, UPM tells you how to install
+it before adding it. If Homebrew cannot find it, check the name with
+`brew search NAME` or add the tap that provides it.
 `remove` also works after a package has been uninstalled. Formulae from third
 party taps retain their full names. Existing Homebrew pins remain in effect;
 unpin a package if you want this tool to manage its updates.

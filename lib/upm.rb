@@ -118,13 +118,59 @@ module Upm
       else
         packages.to_a
       end
-      selected = values.map { |value| resolve(value, installed) }.uniq
+      selected = values.map { |value| resolve(value, installed, add:) }.uniq
       next_packages = add ? packages | selected : packages - selected
       write_packages(next_packages)
       @output.puts("#{add ? "Added" : "Removed"}: #{selected.to_a.sort.join(", ")}")
     end
 
-    def resolve(value, candidates)
+    def add_not_installed_error(value)
+      available = available_packages(value)
+      matches = matching_packages(value, available)
+      if matches.length == 1
+        kind, name = matches.first.split(":", 2)
+        install = kind == "cask" ? "brew install --cask #{name}" : "brew install #{name}"
+        return Error.new("Package '#{value}' is available but isn't installed. Install it with `#{install}`, " \
+                         "then add it with `brew upm add #{value}`.")
+      end
+
+      if matches.length > 1
+        return Error.new("Package '#{value}' is available as #{matches.sort.join(" and ")}, but neither is " \
+                         "installed. Install the one you want, then add its Homebrew name.")
+      end
+
+      Error.new("Package '#{value}' isn't installed, and Homebrew couldn't find a formula or cask with that " \
+                "name. Check the name with `brew search #{value}` and install it before adding it to upm.")
+    end
+
+    def available_packages(value)
+      ["formula", "cask"].flat_map do |kind|
+        output = brew(["info", "--json=v2", "--#{kind}", value], capture: true)
+        data = JSON.parse(output)
+        entries = data[kind == "formula" ? "formulae" : "casks"]
+        next [] unless entries.is_a?(Array)
+
+        entries.filter_map do |item|
+          name = if kind == "formula"
+            item["full_name"] || item["name"]
+          else
+            item["full_token"] || item["token"]
+          end
+          "#{kind}:#{name}" if name
+        end
+      rescue Error, JSON::ParserError
+        []
+      end
+    end
+
+    def matching_packages(value, candidates)
+      candidates.select do |candidate|
+        name = candidate.split(":", 2).last
+        value == name || value == File.basename(name)
+      end.uniq
+    end
+
+    def resolve(value, candidates, add: false)
       matches = if value.include?(":")
         candidates.select { |candidate| candidate == value }
       else
@@ -134,6 +180,8 @@ module Upm
         end
       end
       if matches.empty?
+        raise add_not_installed_error(value) if add
+
         raise Error,
               "Package '#{value}' was not found. Use an installed Homebrew name (or a listed name for remove)."
       end
