@@ -1,6 +1,6 @@
 # brew upm
 
-[![Tests](https://github.com/azizoid/brew-upm/actions/workflows/tests.yml/badge.svg)](https://github.com/azizoid/brew-upm/actions/workflows/tests.yml)
+[![Tests](https://github.com/azizoid/homebrew-upm/actions/workflows/tests.yml/badge.svg)](https://github.com/azizoid/homebrew-upm/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Upgrade your Homebrew packages. Skip patch updates for the ones on your list.
@@ -23,22 +23,19 @@ version, including its patches.
 Requires macOS, a recent Homebrew with cask pin support, and Python 3.9 or newer.
 No Python dependencies. `upm` is a custom Homebrew command.
 
-Clone the repository and link the command into Homebrew's existing `PATH`:
+Add the tap, trust just this command, then add the packages you want the policy
+to cover:
 
 ```sh
-git clone https://github.com/azizoid/brew-upm.git
-cd brew-upm
-ln -s "$PWD/brew-upm" "$(brew --prefix)/bin/brew-upm"
+brew tap azizoid/upm && brew trust --command azizoid/upm/upm
 brew upm add docker-desktop
 brew upm --dry-run
 ```
 
-Homebrew exposes executables named `brew-NAME` on `PATH` as `brew NAME`.
-Alternatively add this repository's directory to `PATH`.
-
-To update the tool, run `git pull --ff-only` from its clone. To uninstall,
-remove the `brew-upm` symlink from `$(brew --prefix)/bin`. Your package list
-stays in your configuration directory.
+Homebrew automatically updates the tap when you run `brew update`. The trust
+command authorizes only `upm` from this tap. To uninstall the command, run
+`brew untap azizoid/upm`. Your package list stays in your configuration
+directory.
 
 ## Your list
 
