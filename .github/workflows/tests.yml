@@ -25,6 +25,12 @@ jobs:
           brew trust --command azizoid/upm/upm
           brew upm --help
           brew upm --dry-run
+          if error_output="$(HOMEBREW_UPM_CONFIG="$RUNNER_TEMP/upm-command-test/packages.txt" brew upm remove upm-nonexistent-package 2>&1)"; then
+            echo "Expected an error for a package absent from the policy list"
+            exit 1
+          fi
+          [[ "$error_output" == *"isn't on your list"* ]]
+          [[ "$error_output" != *"Usage: brew upm"* ]]
 
   homebrew-integration:
     runs-on: macos-latest

@@ -25,7 +25,7 @@ module Homebrew
           brew:   HOMEBREW_BREW_FILE.to_s,
           prefix: HOMEBREW_PREFIX.to_s,
         ).call(args.named, dry_run: args.dry_run?)
-        raise UsageError, "brew upm failed." unless status.zero?
+        Homebrew.failed = true unless status.zero?
       end
     end
   end

@@ -125,8 +125,7 @@ module Upm
     end
 
     def add_not_installed_error(value, installed)
-      available = available_packages(value)
-      matches = matching_packages(value, available)
+      matches = available_packages(value)
       if matches.length == 1
         kind, name = matches.first.split(":", 2)
         install = kind == "cask" ? "brew install --cask #{name}" : "brew install #{name}"
@@ -151,8 +150,10 @@ module Upm
     end
 
     def available_packages(value)
-      ["formula", "cask"].flat_map do |kind|
-        output = brew(["info", "--json=v2", "--#{kind}", value], capture: true)
+      requested_kind, requested_name = value.include?(":") ? value.split(":", 2) : [nil, value]
+      kinds = requested_kind ? [requested_kind] : ["formula", "cask"]
+      kinds.flat_map do |kind|
+        output = brew(["info", "--json=v2", "--#{kind}", requested_name], capture: true)
         data = JSON.parse(output)
         entries = data[kind == "formula" ? "formulae" : "casks"]
         next [] unless entries.is_a?(Array)
@@ -171,14 +172,18 @@ module Upm
     end
 
     def matching_packages(value, candidates)
+      requested_kind, requested_name = value.include?(":") ? value.split(":", 2) : [nil, value]
       candidates.select do |candidate|
-        name = candidate.split(":", 2).last
-        value == name || value == File.basename(name)
+        kind, name = candidate.split(":", 2)
+        (!requested_kind || requested_kind == kind) &&
+          (requested_name == name || requested_name == File.basename(name))
       end.uniq
     end
 
     def similar_installed_packages(value, candidates)
-      normalized_value = value.downcase
+      requested_kind, name = value.include?(":") ? value.split(":", 2) : [nil, value]
+      normalized_value = File.basename(name).downcase
+      candidates = candidates.select { |candidate| candidate.start_with?("#{requested_kind}:") } if requested_kind
       ranked = candidates.uniq.map do |candidate|
         package_name = candidate.split(":", 2).last
         package_name = File.basename(package_name).downcase
@@ -208,19 +213,12 @@ module Upm
     end
 
     def resolve(value, candidates, add: false)
-      matches = if value.include?(":")
-        candidates.select { |candidate| candidate == value }
-      else
-        candidates.select do |candidate|
-          name = candidate.split(":", 2).last
-          value == name || value == File.basename(name)
-        end
-      end
+      matches = matching_packages(value, candidates)
       if matches.empty?
         raise add_not_installed_error(value, candidates) if add
 
         raise Error,
-              "Package '#{value}' was not found. Use an installed Homebrew name (or a listed name for remove)."
+              "Package '#{value}' isn't on your list. Run `brew upm list` to see listed packages."
       end
       raise Error, "Package '#{value}' is ambiguous; choose #{matches.sort.join(" or ")}." if matches.length > 1
 

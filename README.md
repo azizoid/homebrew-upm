@@ -77,8 +77,9 @@ format, with optional comments and one `formula:name` or `cask:name` per line.
 `add` accepts installed Homebrew names and stores their package type. If a name
 matches both types, use `brew upm add cask:name` or `formula:name`. If the
 package exists in Homebrew but is not installed, UPM tells you how to install
-it before adding it. If Homebrew cannot find it, check the name with
-`brew search NAME` or add the tap that provides it.
+it before adding it. For a mistyped name, UPM suggests a similar installed
+package when possible. Otherwise, check the name with `brew search NAME`
+or add the tap that provides it. UPM never installs packages automatically.
 `remove` also works after a package has been uninstalled. Formulae from third
 party taps retain their full names. Existing Homebrew pins remain in effect;
 unpin a package if you want this tool to manage its updates.
@@ -121,7 +122,10 @@ Homebrew commands that change pins or upgrades at the same time. Plain
 ruby -Ilib test/test_upm.rb
 ```
 
-Tests mock Homebrew: they never install, upgrade, pin, or unpin real packages.
+The unit tests mock Homebrew and never change installed packages or pins.
+CI also runs real cask integration tests in a separate Homebrew prefix, using
+tiny generated apps in a temporary app directory. These cover patch skips,
+minor upgrades, existing pins, SIGTERM cleanup, and manual SIGKILL recovery.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ## License

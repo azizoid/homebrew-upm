@@ -217,6 +217,28 @@ class UpmTest < Minitest::Test
     refute File.exist?(@config)
   end
 
+  def test_add_suggests_cask_install_for_typed_uninstalled_name
+    File.write(@info, JSON.generate(
+      "formulae" => [],
+      "casks" => [{ "token" => "example-app", "full_token" => "example-app" }],
+    ))
+    status, logged = invoke(["add", "cask:example-app"])
+    assert_equal 1, status
+    assert_match "brew install --cask example-app", @error.string
+    assert_match "brew upm add cask:example-app", @error.string
+    assert_includes logged, ["info", "--json=v2", "--cask", "example-app"]
+    refute logged.any? { |args| args[0] == "info" && args.include?("--formula") }
+    refute File.exist?(@config)
+  end
+
+  def test_remove_unknown_name_points_to_the_list
+    status, = invoke(["remove", "missing"])
+    assert_equal 1, status
+    assert_match "isn't on your list", @error.string
+    assert_match "brew upm list", @error.string
+    refute File.exist?(@config)
+  end
+
   def test_add_suggests_a_similar_installed_package_name
     File.write(@casks, "open-design\n")
     File.write(@info, JSON.generate("formulae" => [], "casks" => []))
