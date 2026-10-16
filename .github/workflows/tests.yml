@@ -10,20 +10,18 @@ permissions:
 
 jobs:
   tests:
-    name: Python ${{ matrix.python }} on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            python: '3.9'
-          - os: macos-latest
-            python: '3.13'
+    runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-python@v7.0.0
-        with:
-          python-version: ${{ matrix.python }}
-      - name: Run mocked Homebrew tests
-        run: python -m unittest -v
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run isolated Ruby tests
+        run: ruby test/test_upm.rb
+      - name: Verify Homebrew command integration
+        env:
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+        run: |
+          tap_dir="$(brew --repository)/Library/Taps/azizoid/homebrew-upm"
+          mkdir -p "$(dirname "$tap_dir")"
+          ln -s "$GITHUB_WORKSPACE" "$tap_dir"
+          brew trust --command azizoid/upm/upm
+          brew upm --help
+          brew upm --dry-run
