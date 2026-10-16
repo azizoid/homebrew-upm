@@ -1,0 +1,4 @@
+__pycache__/
+*.cover
+*.py[cod]
+.DS_Store

@@ -1,0 +1,2 @@
+# Packages in this list receive major/minor upgrades only.
+cask:docker-desktop
