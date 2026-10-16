@@ -14,6 +14,20 @@ brew upm recover                # inspect pins after a forced interruption
 brew upm --dry-run               # preview; no metadata or package changes
 ```
 
+For example, add Docker Desktop and let `upm` defer a patch download:
+
+```sh
+brew upm add docker-desktop
+brew upm
+```
+
+Illustrative version policy (not literal command output):
+
+```text
+4.93.0 → 4.93.1  skip
+4.93.0 → 4.94.0  upgrade
+```
+
 Unlisted formulae and casks upgrade normally. Listed packages upgrade when their
 major or minor version increases: `4.93.0 → 4.94.0` qualifies;
 `4.93.0 → 4.93.1` does not. A qualifying upgrade installs Homebrew's latest
@@ -54,7 +68,9 @@ directory.
 ## Your list
 
 The list lives outside the repository at `~/.config/brew-upm/packages.txt`.
-`XDG_CONFIG_HOME` changes the config root; `BREW_UPM_CONFIG` overrides the file.
+`HOMEBREW_XDG_CONFIG_HOME` changes the config root; `HOMEBREW_UPM_CONFIG`
+overrides the file. Homebrew preserves these `HOMEBREW_*` variables when it
+starts the command.
 Fresh installations start with an empty list. `packages.example.txt` shows the
 format, with optional comments and one `formula:name` or `cask:name` per line.
 

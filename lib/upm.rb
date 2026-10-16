@@ -61,10 +61,11 @@ module Upm
     private
 
     def config_path
-      configured = @environ["BREW_UPM_CONFIG"]
+      configured = @environ["HOMEBREW_UPM_CONFIG"] || @environ["BREW_UPM_CONFIG"]
       return File.expand_path(configured) if configured.to_s.length.positive?
 
-      config_home = @environ["XDG_CONFIG_HOME"] || File.join(Dir.home, ".config")
+      config_home = @environ["HOMEBREW_XDG_CONFIG_HOME"] || @environ["XDG_CONFIG_HOME"] ||
+                    File.join(Dir.home, ".config")
       File.join(File.expand_path(config_home), "brew-upm", "packages.txt")
     end
 
@@ -246,12 +247,13 @@ module Upm
         raise
       ensure
         unpin_owned(cleanup)
-        FileUtils.rm_f(journal_path)
+        remove_journal
       end
     end
 
     def persist_journal(data)
       FileUtils.mkdir_p(state_dir, mode: 0700)
+      sync_directory_chain(state_dir)
       Tempfile.create(["recovery", ".json"], state_dir, mode: 0600) do |file|
         file.write(JSON.pretty_generate(data))
         file.write("\n")
@@ -259,6 +261,7 @@ module Upm
         file.fsync
         File.rename(file.path, journal_path)
       end
+      sync_directory(state_dir)
     end
 
     def ensure_no_journal!
@@ -273,6 +276,13 @@ module Upm
       end
 
       journal = JSON.parse(File.read(journal_path))
+      valid_journal = journal.is_a?(Hash) &&
+                      (journal.key?("pending") || journal.key?("pinned")) &&
+                      %w[pending pinned].all? { |key| !journal.key?(key) || journal[key].is_a?(Array) }
+      unless valid_journal
+        raise Error, "Invalid recovery journal; inspect #{journal_path} before removing it."
+      end
+
       identities = (Array(journal["pending"]) + Array(journal["pinned"])).uniq
       unless identities.all? { |identity| identity.is_a?(String) && PACKAGE.match?(identity) }
         raise Error, "Invalid recovery journal; inspect #{journal_path} before removing it."
@@ -294,6 +304,7 @@ module Upm
       end
 
       File.delete(journal_path)
+      sync_directory(state_dir)
       @output.puts("Recovery complete; no journaled packages remain pinned.")
     ensure
       @recovering = false
@@ -329,10 +340,32 @@ module Upm
             "update Homebrew before running upgrades with patch-skipped casks."
     end
 
+    def remove_journal
+      FileUtils.rm_f(journal_path)
+      sync_directory(state_dir) if File.directory?(state_dir)
+    end
+
+    def sync_directory_chain(path)
+      current = File.expand_path(path)
+      prefix = @prefix
+      until current == prefix
+        sync_directory(current)
+        parent = File.dirname(current)
+        break if parent == current
+
+        current = parent
+      end
+      sync_directory(prefix)
+    end
+
+    def sync_directory(path)
+      File.open(path, File::RDONLY, &:fsync)
+    end
+
     def brew(arguments, capture: false)
       environment = @environ.to_h.merge("HOMEBREW_NO_AUTO_UPDATE" => "1")
       if capture || !@output.equal?($stdout) || !@error.equal?($stderr)
-        stdout, stderr, status = Open3.capture3(environment, @brew, *arguments)
+        stdout, stderr, status = capture_brew(environment, arguments)
         unless status.success?
           raise Error,
                 stderr.strip.empty? ? "brew #{arguments.join(" ")} failed (exit #{status.exitstatus})." : stderr.strip
@@ -341,16 +374,59 @@ module Upm
         return capture ? stdout : ""
       end
 
-      success = system(environment, @brew, *arguments)
-      unless success
-        status = $?
+      _pid, status = spawn_and_wait(environment, arguments)
+      unless status.success?
         raise Error,
-              "brew #{arguments.join(" ")} failed (exit #{status&.exitstatus || 1})."
+              "brew #{arguments.join(" ")} failed (exit #{status.exitstatus || 1})."
       end
 
       ""
     rescue Errno::ENOENT => e
       raise Error, "Homebrew executable was not found: #{e.message}"
+    end
+
+    def capture_brew(environment, arguments)
+      Open3.popen3(environment, @brew, *arguments, pgroup: true) do |stdin, stdout, stderr, wait_thread|
+        stdin.close
+        stdout_reader = Thread.new { stdout.read }
+        stderr_reader = Thread.new { stderr.read }
+        begin
+          status = wait_thread.value
+          [stdout_reader.value, stderr_reader.value, status]
+        rescue Interrupt
+          terminate_process_group(wait_thread.pid)
+          raise
+        end
+      end
+    end
+
+    def spawn_and_wait(environment, arguments)
+      pid = Process.spawn(environment, @brew, *arguments, pgroup: true)
+      _waited_pid, status = Process.wait2(pid)
+      [pid, status]
+    rescue Interrupt
+      terminate_process_group(pid) if pid
+      raise
+    end
+
+    def terminate_process_group(pid)
+      Process.kill("TERM", -pid)
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 2
+      status = nil
+      while status.nil? && Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
+        sleep 0.05
+        begin
+          _waited_pid, status = Process.waitpid2(pid, Process::WNOHANG)
+        rescue Errno::ECHILD
+          return
+        end
+      end
+      unless status
+        Process.kill("KILL", -pid)
+        Process.waitpid(pid)
+      end
+    rescue Errno::ESRCH
+      Process.waitpid(pid) rescue nil
     end
   end
 end

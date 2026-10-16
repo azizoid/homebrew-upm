@@ -41,10 +41,10 @@ class UpmTest < Minitest::Test
       elsif args[0] == "list" && args[1] == "--pinned"
         puts File.exist?(ENV.fetch("UPM_TEST_PINNED")) ? File.read(ENV.fetch("UPM_TEST_PINNED")) : ""
       elsif args[0] == "pin"
-        File.open(ENV.fetch("UPM_TEST_PINNED"), "a") { |file| file.puts(args.last) }
+        File.open(ENV.fetch("UPM_TEST_PINNED"), "a") { |file| file.puts(File.basename(args.last)) }
       elsif args[0] == "unpin"
         path = ENV.fetch("UPM_TEST_PINNED")
-        File.write(path, File.readlines(path).reject { |line| line.strip == args.last }.join) if File.exist?(path)
+        File.write(path, File.readlines(path).reject { |line| line.strip == File.basename(args.last) }.join) if File.exist?(path)
       end
     RUBY
     File.chmod(0755, @brew)
@@ -152,6 +152,20 @@ class UpmTest < Minitest::Test
     refute File.exist?(File.join(@prefix, "var/homebrew/brew-upm/recovery.json"))
   end
 
+  def test_third_party_formula_pin_is_detected_and_removed
+    FileUtils.mkdir_p(File.dirname(@config))
+    File.write(@config, "formula:vendor/tap/protected\n")
+    fixture = {
+      "formulae" => [package("vendor/tap/protected"), package("normal")],
+      "casks"    => [],
+    }
+    status, logged = invoke([], fixture:)
+    assert_equal 0, status, @error.string
+    assert_includes logged, ["pin", "--formula", "vendor/tap/protected"]
+    assert_includes logged, ["unpin", "--formula", "vendor/tap/protected"]
+    assert_equal "", File.read(@env.fetch("UPM_TEST_PINNED"))
+  end
+
   def test_config_add_list_remove_round_trip
     status, = invoke(["add", "docker-desktop", "wget"])
     assert_equal 0, status
@@ -177,6 +191,16 @@ class UpmTest < Minitest::Test
     assert File.exist?(recovery)
     assert_match "brew unpin --formula one", @error.string
     assert_match "brew unpin --cask two", @error.string
+  end
+
+  def test_malformed_recovery_journal_is_preserved
+    recovery = File.join(@prefix, "var/homebrew/brew-upm/recovery.json")
+    FileUtils.mkdir_p(File.dirname(recovery))
+    File.write(recovery, "null\n")
+    status, = invoke(["recover"])
+    assert_equal 1, status
+    assert_match "Invalid recovery journal", @error.string
+    assert_equal "null\n", File.read(recovery)
   end
 
   def test_normal_run_stops_when_recovery_is_needed

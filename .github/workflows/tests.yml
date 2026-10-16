@@ -25,3 +25,27 @@ jobs:
           brew trust --command azizoid/upm/upm
           brew upm --help
           brew upm --dry-run
+
+  homebrew-integration:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Create an isolated Homebrew checkout
+        run: |
+          brew_ruby="$(brew ruby -e 'print RbConfig.ruby')"
+          echo "$(dirname "$brew_ruby")" >> "$GITHUB_PATH"
+          echo "HOMEBREW_DEVELOPER=1" >> "$GITHUB_ENV"
+          echo "HOMEBREW_USE_RUBY_FROM_PATH=1" >> "$GITHUB_ENV"
+          git clone --depth 1 https://github.com/Homebrew/brew.git "$RUNNER_TEMP/homebrew-upm-brew"
+      - name: Exercise real Homebrew cask pinning and recovery
+        env:
+          UPM_IT_BREW: ${{ runner.temp }}/homebrew-upm-brew/bin/brew
+          HOMEBREW_TEMP: ${{ runner.temp }}/homebrew-upm-temp
+          HOMEBREW_CACHE: ${{ runner.temp }}/homebrew-upm-cache
+          HOMEBREW_LOGS: ${{ runner.temp }}/homebrew-upm-logs
+          HOMEBREW_CASK_OPTS: --appdir=${{ runner.temp }}/homebrew-upm-apps
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          XDG_CONFIG_HOME: ${{ runner.temp }}/homebrew-upm-config
+        run: |
+          mkdir -p "$HOMEBREW_TEMP" "$HOMEBREW_CACHE" "$HOMEBREW_LOGS" "$XDG_CONFIG_HOME"
+          ruby test/integration_homebrew.rb
