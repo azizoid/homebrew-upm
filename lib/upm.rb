@@ -168,6 +168,7 @@ module Upm
         return
       end
 
+      ensure_cask_pin_support! if protected.any? { |identity| identity.start_with?("cask:") }
       with_temporary_pins(protected) do
         targets.each { |kind, names| brew(["upgrade", "--#{kind}", *names]) unless names.empty? }
       end
@@ -218,20 +219,30 @@ module Upm
     def with_temporary_pins(packages)
       return yield if packages.empty?
 
-      persist_journal("pending" => packages)
+      persist_journal("pending" => [], "pinned" => [])
       pinned = []
       cleanup = pinned
+      current = nil
       begin
         packages.each do |identity|
           kind, name = identity.split(":", 2)
+          if package_pinned?(kind, name)
+            next
+          end
+          persist_journal("pending" => [identity], "pinned" => pinned)
+          current = identity
           brew(["pin", "--#{kind}", name])
           pinned << identity
-          persist_journal("pending" => packages - pinned, "pinned" => pinned)
+          current = nil
+          persist_journal("pending" => [], "pinned" => pinned)
         end
         yield
       rescue Interrupt
-        # A signal can arrive after `brew pin` succeeds but before it returns.
-        cleanup = packages
+        # A signal can arrive after `brew pin` succeeds but before the journal is updated.
+        cleanup = pinned + [current].compact
+        raise
+      rescue StandardError
+        cleanup = pinned + [current].compact
         raise
       ensure
         unpin_owned(cleanup)
@@ -267,9 +278,23 @@ module Upm
         raise Error, "Invalid recovery journal; inspect #{journal_path} before removing it."
       end
 
-      unpin_owned(identities)
+      remaining = identities.select do |identity|
+        kind, name = identity.split(":", 2)
+        package_pinned?(kind, name)
+      end
+      unless remaining.empty?
+        persist_journal("pending" => remaining, "pinned" => [])
+        commands = remaining.map do |identity|
+          kind, name = identity.split(":", 2)
+          "brew unpin --#{kind} #{name}"
+        end
+        raise Error,
+              "Cannot safely identify who owns the remaining pins. Review them, run these commands if appropriate, " \
+              "then run `brew upm recover` again: #{commands.join("; ")}"
+      end
+
       File.delete(journal_path)
-      @output.puts("Recovered temporary pins.")
+      @output.puts("Recovery complete; no journaled packages remain pinned.")
     ensure
       @recovering = false
     end
@@ -279,13 +304,29 @@ module Upm
       identities.reverse_each do |identity|
         kind, name = identity.split(":", 2)
         begin
-          pinned = brew(["list", "--pinned", "--#{kind}"], capture: true).lines.map(&:strip)
-          brew(["unpin", "--#{kind}", name]) if pinned.include?(name)
+          brew(["unpin", "--#{kind}", name]) if package_pinned?(kind, name)
         rescue Error => e
           failures << "Run brew unpin --#{kind} #{name}: #{e.message}"
         end
       end
       raise Error, "Could not restore temporary pins. #{failures.join(" ")}" unless failures.empty?
+    end
+
+    def package_pinned?(kind, name)
+      pinned = brew(["list", "--pinned", "--#{kind}"], capture: true).lines.map(&:strip)
+      pinned.include?(File.basename(name))
+    end
+
+    def ensure_cask_pin_support!
+      commands = %w[pin unpin list]
+      unsupported = commands.reject do |command|
+        brew([command, "--help"], capture: true).include?("--cask")
+      end
+      return if unsupported.empty?
+
+      raise Error,
+            "Cask pinning requires Homebrew 5.1.12 or newer. `brew #{unsupported.first} --help` lacks --cask; " \
+            "update Homebrew before running upgrades with patch-skipped casks."
     end
 
     def brew(arguments, capture: false)

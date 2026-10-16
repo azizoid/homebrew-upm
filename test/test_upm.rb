@@ -25,8 +25,12 @@ class UpmTest < Minitest::Test
       if fail_match
         warn "simulated brew failure"
         exit 1
+      elsif %w[pin unpin list].include?(args[0]) && args[1] == "--help"
+        puts "--cask --formula"
       end
-      if args == ["outdated", "--json=v2"]
+      if %w[pin unpin list].include?(args[0]) && args[1] == "--help"
+        # Help probes used for Homebrew feature detection must not mutate state.
+      elsif args == ["outdated", "--json=v2"]
         puts File.read(ENV.fetch("UPM_TEST_FIXTURE"))
       elsif args == ["update"]
         puts "Refreshing Homebrew metadata..."
@@ -160,18 +164,19 @@ class UpmTest < Minitest::Test
     assert_equal "cask:docker-desktop\n", File.read(@config)
   end
 
-  def test_recovery_removes_only_recorded_temporary_pins
+  def test_recovery_reports_pins_for_manual_review
     FileUtils.mkdir_p(File.dirname(@config))
     recovery = File.join(@prefix, "var/homebrew/brew-upm/recovery.json")
     FileUtils.mkdir_p(File.dirname(recovery))
     File.write(recovery, JSON.generate("pending" => ["formula:one"], "pinned" => ["cask:two"]))
     File.write(@env.fetch("UPM_TEST_PINNED"), "one\ntwo\nuser-pin\n")
     status, logged = invoke(["recover"])
-    assert_equal 0, status
-    assert_includes logged, ["unpin", "--cask", "two"]
-    assert_includes logged, ["unpin", "--formula", "one"]
-    assert_equal "user-pin\n", File.read(@env.fetch("UPM_TEST_PINNED"))
-    refute File.exist?(recovery)
+    assert_equal 1, status
+    refute logged.any? { |args| args.first == "unpin" }
+    assert_equal "one\ntwo\nuser-pin\n", File.read(@env.fetch("UPM_TEST_PINNED"))
+    assert File.exist?(recovery)
+    assert_match "brew unpin --formula one", @error.string
+    assert_match "brew unpin --cask two", @error.string
   end
 
   def test_normal_run_stops_when_recovery_is_needed

@@ -10,7 +10,7 @@ brew upm                         # refresh metadata, then upgrade
 brew upm add docker-desktop wget  # skip these packages' patch updates
 brew upm list
 brew upm remove wget
-brew upm recover                # restore temporary pins after forced interruption
+brew upm recover                # inspect pins after a forced interruption
 brew upm --dry-run               # preview; no metadata or package changes
 ```
 
@@ -31,8 +31,9 @@ patches—including security fixes—when a major or minor update becomes availa
 
 ## Install
 
-Requires macOS and Homebrew. `upm` is a native Ruby Homebrew external command;
-it uses Homebrew's Ruby runtime and has no separate language or package dependencies.
+Requires macOS and Homebrew 5.1.12 or newer. `upm` is a native Ruby Homebrew
+external command; it uses Homebrew's Ruby runtime and has no separate language
+or package dependencies.
 
 Add the tap, trust just this command, then add the packages you want the policy
 to cover:
@@ -87,10 +88,13 @@ Avoid running other Homebrew upgrades at the same time.
 
 If the process is forcibly killed or the machine loses power while temporary
 pins are active, the tool keeps a recovery journal and blocks further operations
-until you run `brew upm recover`. It removes only pins recorded by the interrupted
-run. The tool serializes its own operations across config files; avoid running
-other Homebrew upgrade commands at the same time. Plain `brew upgrade` ignores
-this tool's list.
+until you run `brew upm recover`. Because Homebrew does not record which process
+created a pin, recovery will not unpin packages automatically: it lists any
+remaining pins and gives you the exact `brew unpin` commands. Review them, run
+only the commands you want, then run `brew upm recover` again to clear the journal.
+The tool serializes its own operations across config files; avoid running other
+Homebrew commands that change pins or upgrades at the same time. Plain
+`brew upgrade` ignores this tool's list.
 
 ## Development
 
