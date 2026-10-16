@@ -14,6 +14,8 @@ class UpmTest < Minitest::Test
     @config = File.join(@directory, "config", "packages.txt")
     @log = File.join(@directory, "brew.jsonl")
     @fixture = File.join(@directory, "outdated.json")
+    @info = File.join(@directory, "info.json")
+    @casks = File.join(@directory, "casks.txt")
     @failure = File.join(@directory, "failure.txt")
     @brew = File.join(@directory, "brew")
     File.write(@brew, <<~RUBY)
@@ -37,7 +39,21 @@ class UpmTest < Minitest::Test
       elsif args[0] == "list" && args[1] == "--formula"
         puts "wget\\nnormal\\n"
       elsif args[0] == "list" && args[1] == "--cask"
-        puts "docker-desktop\\n"
+        puts File.exist?(ENV.fetch("UPM_TEST_CASKS")) ? File.read(ENV.fetch("UPM_TEST_CASKS")) : "docker-desktop\\n"
+      elsif args[0] == "info" && args[1] == "--json=v2"
+        data = JSON.parse(File.read(ENV.fetch("UPM_TEST_INFO")))
+        key = args[2] == "--formula" ? "formulae" : "casks"
+        entries = data.fetch(key)
+        requested = args.last
+        matching = entries.select do |entry|
+          names = key == "formulae" ? [entry["name"], entry["full_name"]] : [entry["token"], entry["full_token"]]
+          names.compact.any? { |name| name == requested || File.basename(name) == requested }
+        end
+        if matching.empty?
+          warn "No Homebrew package found"
+          exit 1
+        end
+        puts JSON.generate("formulae" => (key == "formulae" ? matching : []), "casks" => (key == "casks" ? matching : []))
       elsif args[0] == "list" && args[1] == "--pinned"
         puts File.exist?(ENV.fetch("UPM_TEST_PINNED")) ? File.read(ENV.fetch("UPM_TEST_PINNED")) : ""
       elsif args[0] == "pin"
@@ -52,6 +68,8 @@ class UpmTest < Minitest::Test
       "BREW_UPM_CONFIG"  => @config,
       "UPM_TEST_LOG"     => @log,
       "UPM_TEST_FIXTURE" => @fixture,
+      "UPM_TEST_INFO"    => @info,
+      "UPM_TEST_CASKS"   => @casks,
       "UPM_TEST_FAILURE" => @failure,
       "UPM_TEST_PINNED"  => File.join(@directory, "pinned.txt"),
       "UPM_TEST_BREW"    => @brew,
@@ -176,6 +194,36 @@ class UpmTest < Minitest::Test
     status, = invoke(["remove", "wget"])
     assert_equal 0, status
     assert_equal "cask:docker-desktop\n", File.read(@config)
+  end
+
+  def test_add_suggests_install_for_available_uninstalled_formula
+    File.write(@info, JSON.generate(
+      "formulae" => [{ "name" => "opencode", "full_name" => "anomalyco/tap/opencode" }],
+      "casks" => [],
+    ))
+    status, = invoke(["add", "opencode"])
+    assert_equal 1, status
+    assert_match "brew install anomalyco/tap/opencode", @error.string
+    assert_match "brew upm add opencode", @error.string
+    refute File.exist?(@config)
+  end
+
+  def test_add_suggests_search_when_package_is_unavailable
+    File.write(@info, JSON.generate("formulae" => [], "casks" => []))
+    status, = invoke(["add", "opencode-design"])
+    assert_equal 1, status
+    assert_match "brew search opencode-design", @error.string
+    refute_match "reinstall", @error.string
+    refute File.exist?(@config)
+  end
+
+  def test_add_suggests_a_similar_installed_package_name
+    File.write(@casks, "open-design\n")
+    File.write(@info, JSON.generate("formulae" => [], "casks" => []))
+    status, = invoke(["add", "opencode-design"])
+    assert_equal 1, status
+    assert_match "brew upm add cask:open-design", @error.string
+    refute File.exist?(@config)
   end
 
   def test_recovery_reports_pins_for_manual_review

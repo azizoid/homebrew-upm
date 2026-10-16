@@ -124,7 +124,7 @@ module Upm
       @output.puts("#{add ? "Added" : "Removed"}: #{selected.to_a.sort.join(", ")}")
     end
 
-    def add_not_installed_error(value)
+    def add_not_installed_error(value, installed)
       available = available_packages(value)
       matches = matching_packages(value, available)
       if matches.length == 1
@@ -137,6 +137,13 @@ module Upm
       if matches.length > 1
         return Error.new("Package '#{value}' is available as #{matches.sort.join(" and ")}, but neither is " \
                          "installed. Install the one you want, then add its Homebrew name.")
+      end
+
+      similar = similar_installed_packages(value, installed)
+      unless similar.empty?
+        suggestions = similar.map { |candidate| "`brew upm add #{candidate}`" }
+        return Error.new("Package '#{value}' wasn't found. Did you mean #{suggestions.join(" or ")}? " \
+                         "Check the name with `brew search #{value}`.")
       end
 
       Error.new("Package '#{value}' isn't installed, and Homebrew couldn't find a formula or cask with that " \
@@ -170,6 +177,36 @@ module Upm
       end.uniq
     end
 
+    def similar_installed_packages(value, candidates)
+      normalized_value = value.downcase
+      ranked = candidates.uniq.map do |candidate|
+        package_name = candidate.split(":", 2).last
+        package_name = File.basename(package_name).downcase
+        distance = edit_distance(normalized_value, package_name)
+        similarity = 1.0 - distance.to_f / [normalized_value.length, package_name.length].max
+        [candidate, similarity]
+      end
+      best_similarity = ranked.map(&:last).max
+      return [] unless best_similarity && best_similarity >= 0.70
+
+      ranked.select { |_candidate, similarity| similarity == best_similarity }.map(&:first).sort
+    end
+
+    def edit_distance(first, second)
+      previous_row = (0..second.length).to_a
+      first.each_char.with_index do |first_character, first_index|
+        current_row = [first_index + 1]
+        second.each_char.with_index do |second_character, second_index|
+          insertions = current_row[second_index] + 1
+          deletions = previous_row[second_index + 1] + 1
+          substitutions = previous_row[second_index] + (first_character == second_character ? 0 : 1)
+          current_row << [insertions, deletions, substitutions].min
+        end
+        previous_row = current_row
+      end
+      previous_row.last
+    end
+
     def resolve(value, candidates, add: false)
       matches = if value.include?(":")
         candidates.select { |candidate| candidate == value }
@@ -180,7 +217,7 @@ module Upm
         end
       end
       if matches.empty?
-        raise add_not_installed_error(value) if add
+        raise add_not_installed_error(value, candidates) if add
 
         raise Error,
               "Package '#{value}' was not found. Use an installed Homebrew name (or a listed name for remove)."
