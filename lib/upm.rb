@@ -477,23 +477,26 @@ module Upm
           status = wait_thread.value
           [stdout_reader.value, stderr_reader.value, status]
         rescue Interrupt
-          terminate_process_group(wait_thread.pid)
+          terminate_process(wait_thread.pid)
           raise
         end
       end
     end
 
     def spawn_and_wait(environment, arguments)
-      pid = Process.spawn(environment, @brew, *arguments, pgroup: true)
+      interactive = STDIN.tty?
+      # Homebrew reads confirmations from the terminal, so it must stay in the foreground process group.
+      pid = Process.spawn(environment, @brew, *arguments, pgroup: !interactive)
       _waited_pid, status = Process.wait2(pid)
       [pid, status]
     rescue Interrupt
-      terminate_process_group(pid) if pid
+      terminate_process(pid, group: !interactive) if pid
       raise
     end
 
-    def terminate_process_group(pid)
-      Process.kill("TERM", -pid)
+    def terminate_process(pid, group: true)
+      process = group ? -pid : pid
+      Process.kill(group ? "TERM" : "INT", process)
       deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 2
       status = nil
       while status.nil? && Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
@@ -505,7 +508,7 @@ module Upm
         end
       end
       unless status
-        Process.kill("KILL", -pid)
+        Process.kill("KILL", process)
         Process.waitpid(pid)
       end
     rescue Errno::ESRCH
