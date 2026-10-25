@@ -91,6 +91,7 @@ components. Patch/build components, Homebrew `_revision` suffixes, and
 comma-suffixed app build numbers do not trigger an upgrade. Prereleases and
 unknown versions are skipped with an explanation. When Homebrew reports
 multiple installed versions, the newest is used for comparison.
+Skip messages include the update's download size when the download host reports it.
 Listed packages skip every patch release, including security fixes, until a
 major or minor update is available.
 

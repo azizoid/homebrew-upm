@@ -6,8 +6,10 @@
 
 require "fileutils"
 require "json"
+require "net/http"
 require "open3"
 require "tempfile"
+require "uri"
 
 module Upm
   PACKAGE = %r{\A(formula|cask):([a-zA-Z0-9][a-zA-Z0-9@+_.-]*(?:/[a-zA-Z0-9][a-zA-Z0-9@+_.-]*){0,2})\z}
@@ -274,7 +276,9 @@ module Upm
           if item["pinned"]
             @output.puts("#{identity}: already pinned; skipped")
           elsif packages.include?(identity) && (reason = skip_reason(item))
-            @output.puts("#{identity}: #{reason}")
+            size = skipped_download_size(kind, item)
+            suffix = size ? " (download size: #{size})" : ""
+            @output.puts("#{identity}: #{reason}#{suffix}")
             protected << identity
           else
             targets[kind] << item.fetch("name")
@@ -298,6 +302,55 @@ module Upm
     def version_tuple(value)
       match = VERSION.match(value.split(",", 2).first.strip)
       match && match[1].split(".").map(&:to_i)
+    end
+
+    def skipped_download_size(kind, item)
+      key = kind == "formula" ? "formulae" : "casks"
+      info = JSON.parse(brew(["info", "--json=v2", "--#{kind}", item.fetch("name")], capture: true))
+      package = info.fetch(key).first
+      return unless package
+
+      url = if kind == "cask"
+        package["url"]
+      else
+        files = package.dig("bottle", "stable", "files")
+        files&.values&.find { |file| file["url"] }&.fetch("url") || package.dig("urls", "stable", "url")
+      end
+      bytes = response_content_length(url)
+      return unless bytes&.positive?
+
+      human_size(bytes)
+    rescue StandardError
+      nil
+    end
+
+    def response_content_length(url, redirects = 3)
+      return if redirects.negative?
+
+      uri = URI.parse(url)
+      return unless %w[http https].include?(uri.scheme)
+
+      # shortcut: omit sizes when hosts lack Content-Length; add a provider-specific lookup for full coverage.
+      response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https",
+                                 open_timeout: 2, read_timeout: 2) do |http|
+        http.head(uri.request_uri)
+      end
+      if response.is_a?(Net::HTTPRedirection) && response["location"]
+        response_content_length(URI.join(uri.to_s, response["location"]).to_s, redirects - 1)
+      elsif response.is_a?(Net::HTTPSuccess) && response["content-length"]
+        Integer(response["content-length"], 10)
+      end
+    end
+
+    def human_size(bytes)
+      return "#{bytes} B" if bytes < 1000
+
+      size = bytes.to_f
+      %w[kB MB GB TB].each do |unit|
+        size /= 1000
+        return format("%.1f %s", size, unit) if size < 1000
+      end
+      format("%.1f PB", size / 1000)
     end
 
     def with_temporary_pins(packages)

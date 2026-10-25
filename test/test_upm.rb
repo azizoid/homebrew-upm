@@ -148,6 +148,27 @@ class UpmTest < Minitest::Test
     refute logged.any? { |args| args.first == "upgrade" }
   end
 
+  def test_skipped_update_reports_download_size_when_available
+    FileUtils.mkdir_p(File.dirname(@config))
+    File.write(@config, "cask:download-size\n")
+    response = Net::HTTPOK.new("1.1", "200", "OK")
+    response["Content-Length"] = "1500000"
+    http = Object.new
+    http.define_singleton_method(:head) { |path| response if path == "/update.zip" }
+    original_start = Net::HTTP.method(:start)
+    Net::HTTP.define_singleton_method(:start) { |*_args, **_options, &block| block.call(http) }
+    File.write(@info, JSON.generate(
+      "formulae" => [],
+      "casks" => [{ "token" => "download-size", "url" => "https://example.com/update.zip" }],
+    ))
+
+    status, = invoke([], fixture: { "formulae" => [], "casks" => [package("download-size")] })
+    assert_equal 0, status, @error.string
+    assert_includes @output.string, "download size: 1.5 MB"
+  ensure
+    Net::HTTP.define_singleton_method(:start, original_start) if original_start
+  end
+
   def test_failed_upgrade_restores_temporary_pins_and_clears_journal
     FileUtils.mkdir_p(File.dirname(@config))
     File.write(@config, "formula:protected\n")
